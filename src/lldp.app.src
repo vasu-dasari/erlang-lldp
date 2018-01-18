@@ -1,0 +1,19 @@
+{application, lldp, [
+    {description, "Erlang based LLDP Libray"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, { lldp_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        lager,
+        gen_netlink,
+        pkt
+    ]},
+    {env,[]},
+    {modules, []},
+
+    {maintainers, []},
+    {licenses, ["Apache 2.0"]},
+    {links, []}
+]}.

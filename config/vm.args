@@ -1,0 +1,9 @@
+-sname lldp
+
+-setcookie lldp_cookie
+
+## Let's fix listener port for distributed erlang node
+-kernel inet_dist_listen_min 19000 inet_dist_listen_max 19000
+
++K true
++A30

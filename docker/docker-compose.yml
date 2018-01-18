@@ -1,0 +1,45 @@
+version: '2.1'
+
+services:
+  main:
+    image: vdasari/erlango:latest
+    container_name: lldp
+    hostname: lldp
+    volumes:
+        - ${HOME}:${HOME}
+    privileged: true
+    networks:
+      default_lldp_net:
+        ipv4_address: 10.0.123.10
+      network_lldp_1:
+        ipv4_address: 10.0.100.1
+
+  lldp1:
+    image: vdasari/erlango:latest
+    container_name: lldp1
+    hostname: lldp1
+    volumes:
+        - ${HOME}:${HOME}
+    privileged: true
+    networks:
+      default_lldp_net:
+        ipv4_address: 10.0.123.20
+      network_lldp_1:
+        ipv4_address: 10.0.100.2
+
+
+networks:
+  default_lldp_net:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+      - subnet: 10.0.123.0/24
+        gateway: 10.0.123.254
+  network_lldp_1:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+      - subnet: 10.0.100.0/24
+        gateway: 10.0.100.254
