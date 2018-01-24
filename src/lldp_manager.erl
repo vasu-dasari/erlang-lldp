@@ -24,7 +24,7 @@
     terminate/2,
     code_change/3]).
 
--export([interface/3]).
+-export([info/0, info/1, info/2, info/3]).
 
 -define(SERVER, ?MODULE).
 
@@ -34,12 +34,23 @@
 -define(cast(A),gen_server:cast(?MODULE, A)).
 
 -record(state, {
-    if_map = #{}
+    handler_map = #{}
 }).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
+info() ->
+    io:format("~s~n", [?call(info)]).
+
+info(Name) ->
+    io:format("~s~n", [?call({info, Name})]).
+
+info(Name, IfName) ->
+    io:format("~s~n", [?call({info, Name, IfName})]).
+
+info(Name, IfName, Option) ->
+    io:format("~s~n", [?call({info, Name, IfName, Option})]).
 
 load_config() ->
     case application:get_env(?APPNAME, netlink) of
@@ -61,9 +72,6 @@ start_netlink(Config) ->
 
 start_handler(Handlers) ->
     ?cast({start_handler, Handlers}).
-
-interface(Op, IfName, IfInfo) ->
-    ?cast({interface, Op, IfName, IfInfo, self()}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -153,26 +161,45 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+process_call(info, #state{handler_map = Map} = State) ->
+    Header =
+        io_lib:format("~16c ~16c ~4c ~4c~n", [$-, $-, $-, $-]) ++
+        io_lib:format("~16s ~16s ~4s ~4s~n", ["Name", "Module", "Ifs", "Nbrs"]) ++
+        io_lib:format("~16c ~16c ~4c ~4c~n", [$-, $-, $-, $-]),
+
+    Return = maps:fold(fun
+        (K, Pid, Acc) ->
+            lldp_handler:info(Pid, {info, brief}) ++ Acc
+    end, [], Map),
+    {reply, lists:flatten(Header ++ Return), State};
+
+process_call(Request, #state{handler_map = Map} = State) when element(1, Request) == info ->
+    HandlerName = element(2, Request),
+    #{HandlerName := Pid} = Map,
+    {reply, lldp_handler:info(Pid, Request), State};
 process_call(Request, State) ->
     ?INFO("call: Unhandled Request ~p", [Request]),
     {reply, ok, State}.
 
-process_cast({start_netlink, Config}, State) ->
+process_cast({start_netlink, Config}, #state{handler_map = Map} = State) ->
     case lldp_netlink:init(Config) of
         {ok,ChildState} ->
             {ok, Pid} = lldp_handler_sup:start_child(lldp_netlink, ChildState),
-            true = erlang:link(Pid);
+            true = erlang:link(Pid),
+            {noreply, State#state{
+                handler_map = Map#{lldp_netlink => Pid}
+            }};
         R ->
-            ?ERROR("Could not start lldp_netlink process", [R])
-    end,
-    {noreply, State};
-process_cast({interface,Op, IfName, IfInfo, HandlerPid}, State) ->
-    {noreply, do_interface(Op, IfName, IfInfo, HandlerPid, State)};
+            ?ERROR("Could not start lldp_netlink process", [R]),
+            {noreply, State}
+    end;
 process_cast(Request, State) ->
     ?INFO("cast: Request~n~p", [Request]),
     {noreply, State}.
 
 process_info_msg({init}, State) ->
+    qdate:set_timezone(os:cmd("date +%Z")),
+    qdate:set_timezone(os:cmd("EST")),
     load_config(),
     {noreply, State};
 
@@ -183,8 +210,3 @@ process_info_msg(Request, State) ->
 %%%===================================================================
 %%% Worker functions
 %%%===================================================================
-do_interface(create = Op, IfName, IfInfo, HandlerPid, #state{if_map = IfMap} = State) ->
-    lldp_handler:event(HandlerPid, {interface, Op, IfName, IfInfo}),
-    State#state{
-        if_map = IfMap#{IfName => IfInfo}
-    }.

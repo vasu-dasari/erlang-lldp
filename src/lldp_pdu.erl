@@ -81,7 +81,7 @@ decode(LldpPduBin) ->
             Acc#lldp_entity_t{chassis_id = binary_to_list(Value)};
 
         (#port_id{subtype = mac_address, value = Value}, Acc) ->
-            Acc#lldp_entity_t{port_id = Value};
+            Acc#lldp_entity_t{port_id = inet_utils:convert_mac(to_string, Value)};
         (#port_id{subtype = network_address, value = Value}, Acc) ->
             Acc#lldp_entity_t{port_id = inet_utils:convert_ip(to_string, Value)};
         (#port_id{value = Value}, Acc) ->
@@ -98,7 +98,10 @@ decode(LldpPduBin) ->
 
         (#management_address{value = Value}, Acc) ->
             {MgmtIp, IfIndex} = decode_mgmt_tlv(Value),
-            Acc#lldp_entity_t{if_index = IfIndex, mgmt_ip = MgmtIp};
+            Acc#lldp_entity_t{
+                if_index = IfIndex,
+                mgmt_ip = MgmtIp
+            };
         (_, Acc) ->
             Acc
     end, #lldp_entity_t{
@@ -115,8 +118,8 @@ encode_mgmt_tlv(_,_) ->
     <<>>.
 
 decode_mgmt_tlv(<<5, 1, AddrBin:4/bytes, 2, IfIndex:32/unsigned-big-integer, 0>>) ->
-    {AddrBin, IfIndex};
+    {inet_utils:convert_ip(to_string, AddrBin), IfIndex};
 decode_mgmt_tlv(<<7, 6, AddrBin:6/bytes, 2, IfIndex:32/unsigned-big-integer, 0>>) ->
-    {AddrBin, IfIndex};
+    {inet_utils:convert_mac(to_string, AddrBin), IfIndex};
 decode_mgmt_tlv(_) ->
-    {<<>>, 0}.
+    {"", 0}.

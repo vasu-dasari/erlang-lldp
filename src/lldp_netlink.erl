@@ -20,7 +20,7 @@
 %% API
 -export([]).
 
--export([init/1, handle_message/2, terminate/2, scan_ifs/1]).
+-export([init/1, handle_message/2, terminate/2, scan_ifs/1, notify/4, info/2]).
 
 -record(state, {
     exclude_intfs = [],
@@ -59,9 +59,21 @@ handle_message({tx_packet, IfName, TxData}, #state{if_map = IfMap} = State) ->
     procket:sendto(SockFd, TxData),
     {ok, State};
 
+handle_message({info, IfName, TxData}, #state{if_map = IfMap} = State) ->
+    #{IfName := #lldp_netlink_intf_t{sock_fd = SockFd}} = IfMap,
+    procket:sendto(SockFd, TxData),
+    {ok, State};
+
 handle_message(Message, State) ->
     ?INFO("Message: ~p", [Message]),
     {ok, State}.
+
+notify(Op, IfName, EntityInfo, State) ->
+    ?INFO("~p Neighbor on ~p, ~p", [Op,IfName, EntityInfo]),
+    {ok, State}.
+
+info(_Request, _State) ->
+    {ok, "Hello World"}.
 
 terminate(Reason, State) ->
     ?INFO("Terminate: ~p, State ~p", [Reason, State]),
@@ -120,7 +132,7 @@ enable_lldp(IfName, IfPropList, State) ->
 
     {SockFd, SockPort} = setup_socket(IfName),
 
-    lldp_manager:interface(create, IfName, IfInfo),
+    lldp_handler:interface(create, IfName, IfInfo),
     {
         #lldp_netlink_intf_t{
             sock_fd = SockFd,

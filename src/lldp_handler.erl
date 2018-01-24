@@ -19,7 +19,7 @@
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--export([event/2, rx_packet/2]).
+-export([info/2, rx_packet/2, interface/3]).
 
 -include_lib("stdlib/include/ms_transform.hrl").
 
@@ -43,6 +43,9 @@
     if_info :: #lldp_entity_t{},
     rx_pkts = 0,
     tx_pkts = 0,
+    ageouts = 0,
+    inserted = 0,
+    deleted = 0,
     tx_data :: binary(),
     nbr_list = #{}
 }).
@@ -53,8 +56,11 @@
 %%% API
 %%%===================================================================
 
-event(Pid, Event) ->
-    gen_server:cast(Pid, Event).
+info(Pid, Args) ->
+    gen_server:call(Pid, Args).
+
+interface(Op, IfName, IfInfo) ->
+    gen_server:cast(self(), {interface, Op, IfName, IfInfo}).
 
 rx_packet(IfName, Data) ->
     gen_server:cast(self(), {rx_packet,IfName,Data}).
@@ -130,6 +136,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+process_call(Request, State) when element(1, Request) == info ->
+    {reply, lists:flatten(do_info(Request, State)), State};
 process_call(Request, State) ->
     ?INFO("call: Unhandled Request ~p", [Request]),
     {reply, ok, State}.
@@ -193,14 +201,23 @@ do_rx_packet(
             if_name = IfName,
             nbr_list = NbrList,
             rx_pkts = RxPkts
-        } = IfInfo, Data, #state{ets_tab = Table}) ->
+        } = IfInfo, Data, #state{ets_tab = Table} = State) ->
     #lldp_entity_t{
         chassis_id = ChassisId, port_id = PortId, ttl = Ttl
     } = DecodeData = lldp_pdu:decode(Data),
     NbrKey = {ChassisId, PortId},
 
+    case maps:get(NbrKey, NbrList, []) of
+        #lldp_entity_t{} = E when E /= DecodeData ->
+            dispatch(notify, {update, IfName, DecodeData}, State);
+        [] ->
+            dispatch(notify, {add, IfName, DecodeData}, State);
+        _ ->
+            ok
+    end,
+
     ets:match_delete(Table, {{'_',NbrKey},'_'}),
-    ets:insert(Table, {{lldp_utils:get_timestamp() + Ttl, NbrKey}, IfName}),
+    ets:insert(Table, {{qdate:add_seconds(Ttl), NbrKey}, IfName}),
 
     IfInfo#lldp_handler_intf_t{
         rx_pkts = RxPkts+1,
@@ -217,8 +234,8 @@ do_tx_packet(#state{if_map = IfMap} = State) ->
     end, IfMap),
     State#state{if_map = NewIfMap}.
 
-do_hold_timer_expired(#state{ets_tab = Table, if_map = IfMap}) ->
-    CurrentTime = lldp_utils:get_timestamp(),
+do_hold_timer_expired(#state{ets_tab = Table, if_map = IfMap} = State) ->
+    CurrentTime = qdate:unixtime(),
     case ets:select(Table,
         ets:fun2ms(fun
             ({{ExpiryTime, L}, IfName}) when ExpiryTime < CurrentTime ->
@@ -229,16 +246,97 @@ do_hold_timer_expired(#state{ets_tab = Table, if_map = IfMap}) ->
                 ({IfName, {_, NbrKey} = Key}, Acc) ->
                     #{IfName := #lldp_handler_intf_t{nbr_list = NbrList} = IfInfo} = Acc,
                     ets:delete(Table, Key),
-                    Acc#{IfName => IfInfo#lldp_handler_intf_t{nbr_list = maps:remove(NbrKey, NbrList)}}
+                    dispatch(notify, {delete, IfName, NbrKey}, State),
+            Acc#{IfName => IfInfo#lldp_handler_intf_t{nbr_list = maps:remove(NbrKey, NbrList)}}
             end, IfMap, Entities);
         _ ->
             IfMap
     end.
 
+do_info({info,brief}, #state{ets_tab = Table} = State) ->
+    io_lib:format("~16s ~16s ~4w ~4w", [
+        State#state.name,
+        State#state.module,
+        map_size(State#state.if_map),
+        proplists:get_value(size, ets:info(Table))
+    ]);
+do_info({info, _}, #state{if_map = IfMap}) ->
+    Header =
+        io_lib:format("~6c ~18c ~12c ~12c ~16c ~4c ~10c ~10c~n",[
+            $-, $-, $-, $-,$-, $-, $-, $-
+        ]) ++
+        io_lib:format("~6s ~18s ~12s ~12s ~16s ~4s ~10s ~10s~n",[
+            "IfName", "Chassis Id", "Port Id", "System Name", "Ip Address", "Nbrs", "Rx Pkts", "Tx Pkts"
+        ]) ++
+        io_lib:format("~6c ~18c ~12c ~12c ~16c ~4c ~10c ~10c~n",[
+            $-, $-, $-, $-,$-, $-, $-, $-
+        ]),
+    Header ++ maps:fold(fun
+        (IfName, #lldp_handler_intf_t{if_info = Entity} = IfInfo, Acc) ->
+            io_lib:format("~6s ~18s ~12s ~12s ~16s ~4w ~10w ~10w~n", [
+                IfName,
+                inet_utils:convert_mac(to_string, Entity#lldp_entity_t.chassis_id),
+                binary_to_list(Entity#lldp_entity_t.port_id),
+                binary_to_list(Entity#lldp_entity_t.sys_name),
+                inet_utils:convert_ip(to_string, Entity#lldp_entity_t.mgmt_ip),
+                map_size(IfInfo#lldp_handler_intf_t.nbr_list),
+                IfInfo#lldp_handler_intf_t.rx_pkts,
+                IfInfo#lldp_handler_intf_t.tx_pkts
+            ]) ++ Acc
+    end, [], IfMap);
+
+do_info({info, _, all, neighbors}, #state{if_map = IfMap} = State) ->
+    maps:fold(fun
+        (IfName, _, Acc) ->
+            do_info({info, '_', IfName, neighbors}, State) ++ Acc
+    end, [], IfMap);
+
+do_info({info, _, IfName, neighbors}, #state{if_map = IfMap, ets_tab = Table}) ->
+    Header =
+        io_lib:format("~18c ~18c ~3c ~12c ~18c ~18c~n",[
+            $-, $-, $-, $-,$-, $-
+        ]) ++
+        io_lib:format("~18s ~18s ~3s ~12s ~18s ~18s~n",[
+            "Chassis Id", "Port Id", "Ttl", "System Name", "Ip Address", "Expires At"
+        ]) ++
+            io_lib:format("~18c ~18c ~3c ~12c ~18c ~18c~n",[
+                $-, $-, $-, $-,$-, $-
+            ]),
+
+    #{IfName := #lldp_handler_intf_t{nbr_list = NbrsMap}} = IfMap,
+
+    Header ++ maps:fold(fun
+        (NbrKey, #lldp_entity_t{} = Entity, Acc) ->
+            [{{ExpiresAt,_},_}] = ets:match_object(Table, {{'_', NbrKey},'_'}),
+            io_lib:format("~18s ~18s ~3w ~12s ~18s ~18s~n", [
+                inet_utils:convert_mac(to_string, Entity#lldp_entity_t.chassis_id),
+                (Entity#lldp_entity_t.port_id),
+                Entity#lldp_entity_t.ttl,
+                (Entity#lldp_entity_t.sys_name),
+                Entity#lldp_entity_t.mgmt_ip,
+                qdate:to_string("n/j/Y g:ia", ExpiresAt)
+            ]) ++ Acc
+    end, [], NbrsMap);
+
+do_info(Request, State) ->
+    io_lib:format("Request ~p", [Request]),
+    dispatch(info, {Request}, State).
+
 %%%===================================================================
 %%% Utility functions
 %%%===================================================================
 
-dispatch(Message, #state{module = CallbackModule, callback_state = CallbackState}) ->
-    {ok, NewState} = CallbackModule:handle_message(Message, CallbackState),
+dispatch(Message, State) ->
+    dispatch(handle_message, [Message], State).
+
+dispatch(Function, Message, #state{module = CallbackModule, callback_state = CallbackState}) ->
+    Args = case Message of
+        _ when is_tuple(Message) ->
+            tuple_to_list(Message) ++ [CallbackState];
+        _ when is_list(Message) ->
+            Message ++ [CallbackState];
+        _ ->
+            [Message, CallbackState]
+    end,
+    {ok, NewState} = erlang:apply(CallbackModule, Function, Args),
     NewState.

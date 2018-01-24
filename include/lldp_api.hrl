@@ -10,12 +10,12 @@
 
 -record(lldp_entity_t, {
     src_mac,
-    chassis_id,
-    port_id,
+    chassis_id = "",
+    port_id = "",
     ttl = 120,
-    sys_name,
-    sys_descr,
-    mgmt_ip,
+    sys_name = "",
+    sys_descr = "",
+    mgmt_ip = "",
     if_index,
     if_state
 }).
