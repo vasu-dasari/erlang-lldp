@@ -9,7 +9,7 @@
 -module(gen_lldp).
 -author("vdasari").
 
--callback init() ->
+-callback init(Config :: list()) ->
     {'ok', State::term()} | {'error', Reason::term()}.
 
 -callback handle_message(Request :: term(), State :: term()) ->

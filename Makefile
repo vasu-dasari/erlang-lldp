@@ -6,9 +6,7 @@ PROJECT_NAME := lldp
 
 include docker/Makefile
 
-REBAR := rebar3
-
-SHELL_ARGS := ERL_FLAGS=\" -args_file config/vm.args -config config/sys.config\" $(REBAR) shell
+REBAR := $(EXEC_ARGS) rebar3
 
 compile:
 	@$(EXEC) "$(REBAR) compile"
@@ -24,6 +22,7 @@ clean:
 deep-clean: clean
 	@rm -rf _build rebar.lock
 
+SHELL_ARGS := ERL_FLAGS=\" -args_file config/vm.args -config config/sys.config\" rebar3 shell
 run:
 	@$(EXEC) "$(EXEC_ARGS) $(SHELL_ARGS)"
 

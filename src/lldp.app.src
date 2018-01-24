@@ -8,7 +8,8 @@
         stdlib,
         lager,
         gen_netlink,
-        pkt
+        pkt,
+        procket
     ]},
     {env,[]},
     {modules, []},

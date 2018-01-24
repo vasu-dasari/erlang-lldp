@@ -24,6 +24,8 @@
     terminate/2,
     code_change/3]).
 
+-export([interface/3]).
+
 -define(SERVER, ?MODULE).
 
 -define(APPNAME, lldp).
@@ -31,22 +33,18 @@
 -define(call(A),gen_server:call(?MODULE, A)).
 -define(cast(A),gen_server:cast(?MODULE, A)).
 
--record(state, {}).
+-record(state, {
+    if_map = #{}
+}).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
 
 load_config() ->
-    case application:get_env(?APPNAME, exclude_intfs) of
-        {ok,IntfList} ->
-            exclude_intfs(IntfList);
-        _ ->
-            ok
-    end,
-    case application:get_env(?APPNAME, use_netlink) of
-        {ok,true} ->
-            start_netlink();
+    case application:get_env(?APPNAME, netlink) of
+        {ok,NetlinkConfig} ->
+            start_netlink(NetlinkConfig);
         _ ->
             ok
     end,
@@ -58,14 +56,14 @@ load_config() ->
     end,
     ok.
 
-exclude_intfs(IntfList) ->
-    ?cast({exclude_intfs, IntfList}).
-
-start_netlink() ->
-    ?cast({start_netlink}).
+start_netlink(Config) ->
+    ?cast({start_netlink, Config}).
 
 start_handler(Handlers) ->
     ?cast({start_handler, Handlers}).
+
+interface(Op, IfName, IfInfo) ->
+    ?cast({interface, Op, IfName, IfInfo, self()}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -159,8 +157,8 @@ process_call(Request, State) ->
     ?INFO("call: Unhandled Request ~p", [Request]),
     {reply, ok, State}.
 
-process_cast({start_netlink}, State) ->
-    case lldp_netlink:init() of
+process_cast({start_netlink, Config}, State) ->
+    case lldp_netlink:init(Config) of
         {ok,ChildState} ->
             {ok, Pid} = lldp_handler_sup:start_child(lldp_netlink, ChildState),
             true = erlang:link(Pid);
@@ -168,6 +166,8 @@ process_cast({start_netlink}, State) ->
             ?ERROR("Could not start lldp_netlink process", [R])
     end,
     {noreply, State};
+process_cast({interface,Op, IfName, IfInfo, HandlerPid}, State) ->
+    {noreply, do_interface(Op, IfName, IfInfo, HandlerPid, State)};
 process_cast(Request, State) ->
     ?INFO("cast: Request~n~p", [Request]),
     {noreply, State}.
@@ -179,3 +179,12 @@ process_info_msg({init}, State) ->
 process_info_msg(Request, State) ->
     ?INFO("info: Request~n~p", [Request]),
     {noreply, State}.
+
+%%%===================================================================
+%%% Worker functions
+%%%===================================================================
+do_interface(create = Op, IfName, IfInfo, HandlerPid, #state{if_map = IfMap} = State) ->
+    lldp_handler:event(HandlerPid, {interface, Op, IfName, IfInfo}),
+    State#state{
+        if_map = IfMap#{IfName => IfInfo}
+    }.
