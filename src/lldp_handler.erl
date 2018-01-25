@@ -172,7 +172,7 @@ process_info_msg({reinit_timer_expired, IfName}, #state{if_map = IfMap} = State)
     } = IfInfo} = IfMap,
     {noreply, State#state{
         callback_state = dispatch({tx_packet, IfName, TxData}, State),
-        if_map = #{IfName => IfInfo#lldp_handler_intf_t{
+        if_map = IfMap#{IfName => IfInfo#lldp_handler_intf_t{
             tx_pkts = TxPkts+1
         }}
     }};
@@ -184,14 +184,54 @@ process_info_msg(Request, State) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-do_interface(create, IfName, IfInfo, #state{if_map = IfMap} = State) ->
-    erlang:send_after(?ReinitTimer * 1000, self(), {reinit_timer_expired, IfName}),
+do_interface(create, IfName, Entity, #state{if_map = IfMap} = State) ->
+    case Entity#lldp_entity_t.if_state == up of
+        true ->
+            erlang:send_after(?ReinitTimer * 1000, self(), {reinit_timer_expired, IfName});
+        _ ->
+            ok
+    end,
+
     State#state{
         if_map = IfMap#{
             IfName => #lldp_handler_intf_t{
                 if_name = IfName,
-                if_info = IfInfo,
-                tx_data = lldp_pdu:encode(IfInfo)
+                if_info = Entity,
+                tx_data = lldp_pdu:encode(Entity)
+            }
+        }
+    };
+do_interface(update, IfName, down, #state{ets_tab = Table, if_map = IfMap} = State) ->
+    #{IfName := #lldp_handler_intf_t{
+        if_info = Entity, nbr_list = NbrList
+    } = IfInfo} = IfMap,
+    lists:foreach(fun
+        ({NbrKey, _}) ->
+            ets:match_delete(Table, {{'_',NbrKey},'_'}),
+            dispatch(notify, {delete, IfName, NbrKey}, State)
+    end, maps:to_list(NbrList)),
+
+    State#state{
+        if_map = IfMap#{
+            IfName => IfInfo#lldp_handler_intf_t{
+                nbr_list = #{},
+                if_info = Entity#lldp_entity_t{
+                    if_state = down
+                }
+            }
+        }
+    };
+
+do_interface(update, IfName, up, #state{if_map = IfMap} = State) ->
+    #{IfName := #lldp_handler_intf_t{if_info = Entity} = IfInfo} = IfMap,
+
+    erlang:send_after(?ReinitTimer * 1000, self(), {reinit_timer_expired, IfName}),
+    State#state{
+        if_map = IfMap#{
+            IfName => IfInfo#lldp_handler_intf_t{
+                if_info = Entity#lldp_entity_t{
+                    if_state = up
+                }
             }
         }
     }.

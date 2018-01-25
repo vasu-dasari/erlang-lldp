@@ -11,16 +11,13 @@ services:
     volumes:
         - ${HOME}:${HOME}
     privileged: true
-    cap_add:
-      - ALL
-      - NET_ADMIN
-      - SYS_ADMIN
-      - NET_BROADCAST
     networks:
       default_lldp_net:
         ipv4_address: 10.0.123.10
       network_lldp_1:
         ipv4_address: 10.0.100.1
+      network_lldp_2:
+        ipv4_address: 10.0.101.1
 
   lldp1:
     build:
@@ -37,16 +34,32 @@ services:
       sleep infinity
       EOF'
     privileged: true
-    cap_add:
-      - ALL
-      - NET_ADMIN
-      - SYS_ADMIN
-      - NET_BROADCAST
     networks:
       default_lldp_net:
         ipv4_address: 10.0.123.20
       network_lldp_1:
         ipv4_address: 10.0.100.2
+
+  lldp2:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    image: vdasari/lldp:latest
+    container_name: lldp2
+    hostname: lldp2
+    volumes:
+        - ${HOME}:${HOME}
+    entrypoint: |
+      bash -c 'bash -s <<EOF
+      lldpd
+      sleep infinity
+      EOF'
+    privileged: true
+    networks:
+      default_lldp_net:
+        ipv4_address: 10.0.123.30
+      network_lldp_2:
+        ipv4_address: 10.0.101.2
 
 
 networks:
@@ -64,3 +77,10 @@ networks:
       config:
       - subnet: 10.0.100.0/24
         gateway: 10.0.100.254
+  network_lldp_2:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+      - subnet: 10.0.101.0/24
+        gateway: 10.0.101.254

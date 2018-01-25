@@ -14,6 +14,7 @@
 
 -include("lldp_api.hrl").
 -include("logger.hrl").
+-include_lib("gen_netlink/include/netlink.hrl").
 
 -define(LldpEtherType, 16#88CC).
 
@@ -46,12 +47,41 @@ init(Config) ->
     }}.
 
 handle_message(started, State) ->
+    netlink:subscribe(self(), [rt]),
     State1 = populate_system_info(State),
     {ok, scan_ifs(State1)};
 
+handle_message(
+        {rtnetlink, [
+            #rtnetlink{type = newlink, msg = {_,_,_, _, _, PropList}}
+        ]},
+        #state{if_map = IfMap} = State) ->
+
+    IfName = proplists:get_value(ifname, PropList),
+    OperState = proplists:get_value(operstate, PropList),
+
+    NewState = case maps:get(IfName, IfMap, []) of
+        #lldp_netlink_intf_t{} when OperState == up ->
+            lldp_handler:interface(update, IfName, up),
+            setup_socket(open, IfName, State);
+        #lldp_netlink_intf_t{} when OperState == down ->
+            lldp_handler:interface(update, IfName, down),
+            setup_socket(close, IfName, State);
+        _ ->
+            State
+    end,
+    {ok, NewState};
+
+handle_message({rtnetlink, _} , State) ->
+    {ok, State};
+
 handle_message({Port,{data,Data}} , #state{port_map = PortMap} = State) ->
-    #lldp_netlink_intf_t{if_name = IfName} = maps:get(Port, PortMap),
-    lldp_handler:rx_packet(IfName, Data),
+    case maps:get(Port, PortMap, []) of
+        [] ->
+            ok;
+        #lldp_netlink_intf_t{if_name = IfName} ->
+            lldp_handler:rx_packet(IfName, Data)
+    end,
     {ok, State};
 
 handle_message({tx_packet, IfName, TxData}, #state{if_map = IfMap} = State) ->
@@ -108,15 +138,11 @@ scan_ifs(#state{exclude_intfs = Excludes, include_intfs = Includes} = State) ->
             is_lldp_enabled(IfName, Includes, Excludes)
     end, RawIfList),
 
-    {IfMap, PortMap} = lists:foldl(fun
-        ({IfName, IfPropList}, {IfAcc, PortAcc}) ->
-            {IfInfo, PortInfo} = enable_lldp(IfName, IfPropList, State),
-            {IfAcc#{IfName => IfInfo}, PortAcc#{PortInfo => IfInfo}}
-    end, {#{}, #{}}, IfList),
-    State#state{
-        if_map = IfMap,
-        port_map = PortMap
-    }.
+    lists:foldl(fun
+        ({IfName, IfPropList}, StateAcc) ->
+            enable_lldp(IfName, IfPropList, State),
+            setup_socket(open, IfName, StateAcc)
+    end, State, IfList).
 
 enable_lldp(IfName, IfPropList, State) ->
     IfInfo = #lldp_entity_t{
@@ -129,25 +155,42 @@ enable_lldp(IfName, IfPropList, State) ->
         mgmt_ip = inet_utils:convert_ip(to_binary, proplists:get_value(addr, IfPropList, 0)),
         if_state = lists:member(up, proplists:get_value(flags, IfPropList, []))
     },
+    lldp_handler:interface(create, IfName, IfInfo).
 
-    {SockFd, SockPort} = setup_socket(IfName),
-
-    lldp_handler:interface(create, IfName, IfInfo),
-    {
-        #lldp_netlink_intf_t{
-            sock_fd = SockFd,
-            if_name = IfName,
-            sock_port = SockPort
-        },
-        SockPort
-    }.
-
-setup_socket(IfName) ->
+setup_socket(open, IfName, #state{if_map = IfMap, port_map = PortMap} = State) ->
     {ok, SockFd} = procket:open(0,
         [{protocol, procket:ntohs(?LldpEtherType)}, {type, raw}, {family, packet}]),
     ok = packet:bind(SockFd, packet:ifindex(SockFd, IfName)),
     SockPort = erlang:open_port({fd, SockFd, SockFd}, [binary, stream]),
-    {SockFd, SockPort}.
+
+    case maps:get(IfName, IfMap, []) of
+        [] ->
+            IfInfo = #lldp_netlink_intf_t{if_name = IfName, sock_fd = SockFd, sock_port = SockPort},
+            State#state{
+                if_map = IfMap#{IfName => IfInfo},
+                port_map = PortMap#{SockPort => IfInfo}
+            };
+        OldIfInfo ->
+            IfInfo = OldIfInfo#lldp_netlink_intf_t{sock_fd = SockFd, sock_port = SockPort},
+            State#state{
+                if_map = IfMap#{IfName => IfInfo},
+                port_map = PortMap#{SockPort => IfInfo}
+            }
+    end;
+setup_socket(close, IfName, #state{if_map = IfMap, port_map = PortMap} = State) ->
+    case maps:get(IfName, IfMap, []) of
+        [] ->
+            State;
+        #lldp_netlink_intf_t{
+            sock_fd = SockFd, sock_port = SockPort
+        } = OldIfInfo  ->
+            erlang:port_close(SockPort),
+            procket:close(SockFd),
+            State#state{
+                if_map = IfMap#{IfName => OldIfInfo#lldp_netlink_intf_t{sock_fd = -1, sock_port = -1}},
+                port_map = maps:remove(SockPort, PortMap)
+            }
+    end.
 
 %%%===================================================================
 %%% Utility functions
