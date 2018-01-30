@@ -14,7 +14,7 @@
 -include("logger.hrl").
 -include("lldp_api.hrl").
 %% API
--export([start_link/2]).
+-export([start_link/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -65,18 +65,19 @@ interface(Op, IfName, IfInfo) ->
 rx_packet(IfName, Data) ->
     gen_server:cast(self(), {rx_packet,IfName,Data}).
 
-start_link(Name, Cfg) ->
-    gen_server:start_link(?MODULE, [Name, Cfg], []).
+start_link(ProcName, ModuleName, Cfg) ->
+    gen_server:start_link(?MODULE, [ProcName, ModuleName, Cfg], []).
 
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
-init([CallbackModule, CallbackState]) ->
-    ?INFO("Starting ~s with ~p, ~p, pid ~p", [?MODULE_STRING, CallbackModule, CallbackState, self()]),
+init([ProcName, CallbackModule, CallbackState]) ->
+    ?INFO("~p: Starting ~s with ~p",
+        [ProcName, ?MODULE_STRING, CallbackModule]),
     self() ! {init},
     {ok, #state{
-        name = CallbackModule,
+        name = ProcName,
         module = CallbackModule,
         callback_state = CallbackState
     }}.
@@ -125,8 +126,9 @@ handle_info(Info, State) ->
             {noreply, State}
     end.
 
-terminate(_Reason, _State) ->
-    ?INFO("~s going down: ~p", [?MODULE, _Reason]),
+terminate(Reason, #state{name = ProcName} = State) ->
+    ?INFO("~s:~s going down: ~p", [?MODULE, ProcName, Reason]),
+    dispatch(terminate, Reason, State),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -191,7 +193,6 @@ do_interface(create, IfName, Entity, #state{if_map = IfMap} = State) ->
         _ ->
             ok
     end,
-
     State#state{
         if_map = IfMap#{
             IfName => #lldp_handler_intf_t{
@@ -294,7 +295,7 @@ do_hold_timer_expired(#state{ets_tab = Table, if_map = IfMap} = State) ->
     end.
 
 do_info({info,brief}, #state{ets_tab = Table} = State) ->
-    io_lib:format("~16s ~16s ~4w ~4w", [
+    io_lib:format("~16s ~16s ~4w ~4w~n", [
         State#state.name,
         State#state.module,
         map_size(State#state.if_map),
@@ -302,23 +303,31 @@ do_info({info,brief}, #state{ets_tab = Table} = State) ->
     ]);
 do_info({info, _}, #state{if_map = IfMap}) ->
     Header =
-        io_lib:format("~6c ~18c ~12c ~12c ~16c ~4c ~10c ~10c~n",[
+        io_lib:format("~8c ~18c ~12c ~12c ~18c ~4c ~10c ~10c~n",[
             $-, $-, $-, $-,$-, $-, $-, $-
         ]) ++
-        io_lib:format("~6s ~18s ~12s ~12s ~16s ~4s ~10s ~10s~n",[
-            "IfName", "Chassis Id", "Port Id", "System Name", "Ip Address", "Nbrs", "Rx Pkts", "Tx Pkts"
+        io_lib:format("~8s ~18s ~12s ~12s ~18s ~4s ~10s ~10s~n",[
+            "IfName", "Chassis Id", "Port Id", "System Name", "Mgmt Address", "Nbrs", "Rx Pkts", "Tx Pkts"
         ]) ++
-        io_lib:format("~6c ~18c ~12c ~12c ~16c ~4c ~10c ~10c~n",[
+        io_lib:format("~8c ~18c ~12c ~12c ~18c ~4c ~10c ~10c~n",[
             $-, $-, $-, $-,$-, $-, $-, $-
         ]),
     Header ++ maps:fold(fun
         (IfName, #lldp_handler_intf_t{if_info = Entity} = IfInfo, Acc) ->
-            io_lib:format("~6s ~18s ~12s ~12s ~16s ~4w ~10w ~10w~n", [
+            io_lib:format("~8s ~18s ~12s ~12s ~18s ~4w ~10w ~10w~n", [
                 IfName,
                 inet_utils:convert_mac(to_string, Entity#lldp_entity_t.chassis_id),
                 binary_to_list(Entity#lldp_entity_t.port_id),
                 binary_to_list(Entity#lldp_entity_t.sys_name),
-                inet_utils:convert_ip(to_string, Entity#lldp_entity_t.mgmt_ip),
+                case size(Entity#lldp_entity_t.mgmt_ip) of
+                    4 ->
+                        inet_utils:convert_ip(to_string, Entity#lldp_entity_t.mgmt_ip);
+                    6 ->
+                        inet_utils:convert_mac(to_string, Entity#lldp_entity_t.mgmt_ip);
+                    _ ->
+                        "unknown"
+                end,
+
                 map_size(IfInfo#lldp_handler_intf_t.nbr_list),
                 IfInfo#lldp_handler_intf_t.rx_pkts,
                 IfInfo#lldp_handler_intf_t.tx_pkts
@@ -337,26 +346,29 @@ do_info({info, _, IfName, neighbors}, #state{if_map = IfMap, ets_tab = Table}) -
             $-, $-, $-, $-,$-, $-
         ]) ++
         io_lib:format("~18s ~18s ~3s ~12s ~18s ~18s~n",[
-            "Chassis Id", "Port Id", "Ttl", "System Name", "Ip Address", "Expires At"
+            "Chassis Id", "Port Id", "Ttl", "System Name", "Mgmt Info", "Expires At"
         ]) ++
-            io_lib:format("~18c ~18c ~3c ~12c ~18c ~18c~n",[
-                $-, $-, $-, $-,$-, $-
-            ]),
+        io_lib:format("~18c ~18c ~3c ~12c ~18c ~18c~n",[
+            $-, $-, $-, $-,$-, $-
+        ]),
 
-    #{IfName := #lldp_handler_intf_t{nbr_list = NbrsMap}} = IfMap,
-
-    Header ++ maps:fold(fun
-        (NbrKey, #lldp_entity_t{} = Entity, Acc) ->
-            [{{ExpiresAt,_},_}] = ets:match_object(Table, {{'_', NbrKey},'_'}),
-            io_lib:format("~18s ~18s ~3w ~12s ~18s ~18s~n", [
-                inet_utils:convert_mac(to_string, Entity#lldp_entity_t.chassis_id),
-                (Entity#lldp_entity_t.port_id),
-                Entity#lldp_entity_t.ttl,
-                (Entity#lldp_entity_t.sys_name),
-                Entity#lldp_entity_t.mgmt_ip,
-                qdate:to_string("n/j/Y g:ia", ExpiresAt)
-            ]) ++ Acc
-    end, [], NbrsMap);
+    Header ++ case maps:get(IfName, IfMap, []) of
+        #lldp_handler_intf_t{nbr_list = NbrsMap} ->
+            maps:fold(fun
+                (NbrKey, #lldp_entity_t{} = Entity, Acc) ->
+                    [{{ExpiresAt,_},_}] = ets:match_object(Table, {{'_', NbrKey},'_'}),
+                    io_lib:format("~18s ~18s ~3w ~12s ~18s ~18s~n", [
+                        inet_utils:convert_mac(to_string, Entity#lldp_entity_t.chassis_id),
+                        (Entity#lldp_entity_t.port_id),
+                        Entity#lldp_entity_t.ttl,
+                        (Entity#lldp_entity_t.sys_name),
+                        Entity#lldp_entity_t.mgmt_ip,
+                        qdate:to_string("n/j/Y g:ia", ExpiresAt)
+                    ]) ++ Acc
+            end, [], NbrsMap);
+        _ ->
+            []
+    end;
 
 do_info(Request, State) ->
     io_lib:format("Request ~p", [Request]),

@@ -26,6 +26,8 @@
 
 -export([info/0, info/1, info/2, info/3]).
 
+-export([start_handler/3, stop_handler/1]).
+
 -define(SERVER, ?MODULE).
 
 -define(APPNAME, lldp).
@@ -54,24 +56,17 @@ info(Name, IfName, Option) ->
 
 load_config() ->
     case application:get_env(?APPNAME, netlink) of
-        {ok,NetlinkConfig} ->
-            start_netlink(NetlinkConfig);
+        {ok, Config} ->
+            start_handler(lldp_netlink, lldp_netlink, Config);
         _ ->
             ok
-    end,
-    case application:get_env(?APPNAME, lldp_handler) of
-        {ok, Handlers} when Handlers /= none ->
-            start_handler(Handlers);
-        _ ->
-            ok
-    end,
-    ok.
+    end.
 
-start_netlink(Config) ->
-    ?cast({start_netlink, Config}).
+start_handler(Name, Module, Config) ->
+    ?cast({start_handler, Name, Module, Config}).
 
-start_handler(Handlers) ->
-    ?cast({start_handler, Handlers}).
+stop_handler(Name) ->
+    ?cast({stop_handler, Name}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -168,7 +163,7 @@ process_call(info, #state{handler_map = Map} = State) ->
         io_lib:format("~16c ~16c ~4c ~4c~n", [$-, $-, $-, $-]),
 
     Return = maps:fold(fun
-        (K, Pid, Acc) ->
+        (_, Pid, Acc) ->
             lldp_handler:info(Pid, {info, brief}) ++ Acc
     end, [], Map),
     {reply, lists:flatten(Header ++ Return), State};
@@ -181,18 +176,11 @@ process_call(Request, State) ->
     ?INFO("call: Unhandled Request ~p", [Request]),
     {reply, ok, State}.
 
-process_cast({start_netlink, Config}, #state{handler_map = Map} = State) ->
-    case lldp_netlink:init(Config) of
-        {ok,ChildState} ->
-            {ok, Pid} = lldp_handler_sup:start_child(lldp_netlink, ChildState),
-            true = erlang:link(Pid),
-            {noreply, State#state{
-                handler_map = Map#{lldp_netlink => Pid}
-            }};
-        R ->
-            ?ERROR("Could not start lldp_netlink process", [R]),
-            {noreply, State}
-    end;
+process_cast({start_handler, Name, Module, Config}, State) ->
+    do_start_handler(Name, Module, Config, State);
+process_cast({stop_handler, Name}, State) ->
+    do_stop_handler(Name, State);
+
 process_cast(Request, State) ->
     ?INFO("cast: Request~n~p", [Request]),
     {noreply, State}.
@@ -210,3 +198,22 @@ process_info_msg(Request, State) ->
 %%%===================================================================
 %%% Worker functions
 %%%===================================================================
+
+do_start_handler(Name, Module, Config, #state{handler_map = Map} = State) ->
+    case Module:init(Config) of
+        {ok, ChildState} ->
+            {ok, Pid} = lldp_handler_sup:start_child(Name, Module, ChildState),
+            true = erlang:link(Pid),
+            {noreply, State#state{
+                handler_map = Map#{Name => Pid}
+            }};
+        _ ->
+            {noreply, State}
+    end.
+
+do_stop_handler(Name, #state{handler_map = Map} = State) ->
+    #{Name := Pid} = Map,
+    lldp_handler_sup:stop_child(Pid),
+    {noreply, State#state{
+        handler_map = maps:remove(Name, Map)
+    }}.

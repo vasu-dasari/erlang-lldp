@@ -8,6 +8,9 @@
 %%%-------------------------------------------------------------------
 -author("vdasari").
 
+-define(LldpMac, "01:80:c2:00:00:0e").
+-define(LldpEtherType, 16#88CC).
+
 -record(lldp_entity_t, {
     src_mac,
     chassis_id = "",

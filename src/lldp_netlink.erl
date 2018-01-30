@@ -16,8 +16,6 @@
 -include("logger.hrl").
 -include_lib("gen_netlink/include/netlink.hrl").
 
--define(LldpEtherType, 16#88CC).
-
 %% API
 -export([]).
 
@@ -99,7 +97,7 @@ handle_message(Message, State) ->
     {ok, State}.
 
 notify(Op, IfName, EntityInfo, State) ->
-    ?INFO("~p Neighbor on ~p, ~p", [Op,IfName, EntityInfo]),
+    ?INFO("~p Neighbor on ~p~n~s", [Op,IfName, lldp_utils:record_to_proplist(to_str, EntityInfo)]),
     {ok, State}.
 
 info(_Request, _State) ->

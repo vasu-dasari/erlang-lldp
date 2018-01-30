@@ -17,7 +17,7 @@
 -export([start_link/0]).
 
 %% Supervisor callbacks
--export([init/1, start_child/2]).
+-export([init/1, start_child/3, stop_child/1]).
 
 -define(SERVER, ?MODULE).
 
@@ -69,25 +69,28 @@ init([]) ->
         ?Process(lldp_handler, worker)
     ]}}.
 
-start_child(CallbackModName, CallbackState) ->
-    case whereis(CallbackModName) of
+start_child(ProcName, CallbackModName, CallbackState) ->
+    case whereis(ProcName) of
         undefined ->
-            do_add_child(CallbackModName, CallbackState);
+            do_add_child(ProcName, CallbackModName, CallbackState);
         Pid ->
-            do_delete_child(CallbackModName, Pid),
-            do_add_child(CallbackModName, CallbackState)
+            do_delete_child(Pid),
+            do_add_child(ProcName, CallbackModName, CallbackState)
     end.
+
+stop_child(Pid) when is_pid(Pid) ->
+    do_delete_child(Pid).
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
-do_add_child(CallbackModName, CallbackState) ->
-    case supervisor:start_child(?SERVER, [CallbackModName, CallbackState]) of
-        {ok, Pid} = Ret -> erlang:register(CallbackModName, Pid), Ret;
+do_add_child(ProcName, CallbackModName, CallbackState) ->
+    case supervisor:start_child(?SERVER, [ProcName, CallbackModName, CallbackState]) of
+        {ok, Pid} = Ret -> erlang:register(ProcName, Pid), Ret;
         Ret -> Ret
     end.
 
-do_delete_child(Server, Pid) ->
-    ?INFO("Stopping child ~p", [Server]),
+do_delete_child(Pid) ->
+    gen_server:stop(Pid),
     ok = supervisor:terminate_child(?SERVER, Pid).

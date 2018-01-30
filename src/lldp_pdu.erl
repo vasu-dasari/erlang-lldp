@@ -13,9 +13,6 @@
 -include("lldp_api.hrl").
 -include_lib("pkt/include/pkt.hrl").
 
--define(LldpMac, "01:80:c2:00:00:0e").
--define(LldpEtherType, 16#88CC).
-
 %% API
 -export([encode/1, encode_mgmt_tlv/2, decode_mgmt_tlv/1, decode/1]).
 
@@ -56,8 +53,7 @@ encode(
                     value = SysDescr
                 },
                 #management_address{
-                    value = encode_mgmt_tlv(inet_utils:convert_ip(to_binary, MgmtIp),
-                        IfIndex)
+                    value = encode_mgmt_tlv(MgmtIp, IfIndex)
                 },
                 #system_capability{
                     enabled = [router,bridge],
