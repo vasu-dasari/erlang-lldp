@@ -235,7 +235,23 @@ do_interface(update, IfName, up, #state{if_map = IfMap} = State) ->
                 }
             }
         }
-    }.
+    };
+do_interface(destroy, IfName, _, #state{if_map = IfMap, ets_tab = Table} = State) ->
+    case maps:get(IfName, IfMap, []) of
+        #lldp_handler_intf_t{nbr_list = NbrList} ->
+
+            lists:foreach(fun
+                ({NbrKey, _}) ->
+                    ets:match_delete(Table, {{'_',NbrKey},'_'}),
+                    dispatch(notify, {delete, IfName, NbrKey}, State)
+            end, maps:to_list(NbrList)),
+
+            State#state{
+                if_map = maps:remove(IfName, IfMap)
+            };
+        _ ->
+            State
+    end.
 
 do_rx_packet(
         #lldp_handler_intf_t{
