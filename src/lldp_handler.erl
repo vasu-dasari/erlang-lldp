@@ -12,7 +12,7 @@
 -behaviour(gen_server).
 
 -include("logger.hrl").
--include("lldp_api.hrl").
+-include_lib("lldp/include/lldp_api.hrl").
 %% API
 -export([start_link/3]).
 
@@ -140,6 +140,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 process_call(Request, State) when element(1, Request) == info ->
     {reply, lists:flatten(do_info(Request, State)), State};
+process_call({neighbors, Op, IfInfo}, State) ->
+    {reply, do_neighbors(Op, IfInfo, State), State};
 process_call(Request, State) ->
     ?INFO("call: Unhandled Request ~p", [Request]),
     {reply, ok, State}.
@@ -389,6 +391,24 @@ do_info({info, _, IfName, neighbors}, #state{if_map = IfMap, ets_tab = Table}) -
 do_info(Request, State) ->
     io_lib:format("Request ~p", [Request]),
     dispatch(info, {Request}, State).
+
+do_neighbors(get, {Type, Key}, #state{if_map = IfMap}) ->
+    lists:foldl(fun
+        (#lldp_handler_intf_t{nbr_list = NbrMap}, Acc) when Type == chassis ->
+            maps:values(NbrMap) ++ Acc;
+        (#lldp_handler_intf_t{
+            if_info = #lldp_entity_t{if_index = P},
+            nbr_list = NbrMap
+        }, Acc) when Type == if_index, P == Key ->
+            maps:values(NbrMap) ++ Acc;
+        (#lldp_handler_intf_t{
+            if_name = P,
+            nbr_list = NbrMap
+        }, Acc) when Type == if_name, P == Key ->
+            maps:values(NbrMap) ++ Acc;
+        (_, Acc) ->
+            Acc
+    end, [], maps:values(IfMap)).
 
 %%%===================================================================
 %%% Utility functions

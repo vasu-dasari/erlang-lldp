@@ -26,7 +26,7 @@
 
 -export([info/0, info/1, info/2, info/3]).
 
--export([start_handler/3, stop_handler/1]).
+-export([start_handler/3, stop_handler/1, get_neighbors/2]).
 
 -define(SERVER, ?MODULE).
 
@@ -61,6 +61,9 @@ load_config() ->
         _ ->
             ok
     end.
+
+get_neighbors(ProcName, IfInfo) ->
+    gen_server:call(ProcName, {neighbors, get, IfInfo}).
 
 start_handler(Name, Module, Config) ->
     ?cast({start_handler, Name, Module, Config}).
