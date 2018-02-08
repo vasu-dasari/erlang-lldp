@@ -126,8 +126,12 @@ handle_info(Info, State) ->
             {noreply, State}
     end.
 
-terminate(Reason, #state{name = ProcName} = State) ->
+terminate(Reason, #state{name = ProcName, if_map = IfMap} = State) ->
     ?INFO("~s:~s going down: ~p", [?MODULE, ProcName, Reason]),
+    lists:foreach(fun
+        (IfName) ->
+            do_interface(destroy, IfName, '_', State)
+    end, maps:keys(IfMap)),
     dispatch(terminate, Reason, State),
     ok.
 
@@ -243,9 +247,9 @@ do_interface(destroy, IfName, _, #state{if_map = IfMap, ets_tab = Table} = State
         #lldp_handler_intf_t{nbr_list = NbrList} ->
 
             lists:foreach(fun
-                ({NbrKey, _}) ->
+                ({NbrKey, NbrInfo}) ->
                     ets:match_delete(Table, {{'_',NbrKey},'_'}),
-                    dispatch(notify, {delete, IfName, NbrKey}, State)
+                    dispatch(notify, {delete, IfName, NbrInfo}, State)
             end, maps:to_list(NbrList)),
 
             State#state{
@@ -303,10 +307,15 @@ do_hold_timer_expired(#state{ets_tab = Table, if_map = IfMap} = State) ->
         Entities when is_list(Entities) ->
             lists:foldl(fun
                 ({IfName, {_, NbrKey} = Key}, Acc) ->
-                    #{IfName := #lldp_handler_intf_t{nbr_list = NbrList} = IfInfo} = Acc,
+                    #{IfName := #lldp_handler_intf_t{nbr_list = NbrMap} = IfInfo} = Acc,
                     ets:delete(Table, Key),
-                    dispatch(notify, {delete, IfName, NbrKey}, State),
-            Acc#{IfName => IfInfo#lldp_handler_intf_t{nbr_list = maps:remove(NbrKey, NbrList)}}
+                    case maps:get(Key, NbrMap, []) of
+                        [] ->
+                            Acc;
+                        NbrInfo ->
+                            dispatch(notify, {delete, IfName, NbrInfo}, State),
+                            Acc#{IfName => IfInfo#lldp_handler_intf_t{nbr_list = maps:remove(NbrKey, NbrMap)}}
+                    end
             end, IfMap, Entities);
         _ ->
             IfMap
