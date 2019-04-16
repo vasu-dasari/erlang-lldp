@@ -1,31 +1,35 @@
 
 DOCKER=$(shell which docker)
-DOCKER_COMPOSE = docker/docker-compose.yml
+DOCKER_COMPOSE=COMPOSE_IGNORE_ORPHANS=true $(shell which docker-compose)
+DOCKER_COMPOSE_FILE = docker/docker-compose.yml
 
 EXEC_ARGS=cd $(shell pwd) &&
-ifeq ($(DOCKER),)
+
+ifneq (,$(wildcard _build/.localbuild))
+    EXEC := bash -c
+else ifeq ($(DOCKER),)
     EXEC := bash -c
 else
     EXEC := $(DOCKER) exec -it $(PROJECT_NAME) bash -c
 build:
-	docker-compose -f $(DOCKER_COMPOSE) build
+	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_FILE) build
 
 up:
 ifeq ($(MAKECMDGOALS),up)
-	docker-compose -f $(DOCKER_COMPOSE) up -d
+	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_FILE) up -d
 else
-	docker-compose -f $(DOCKER_COMPOSE) up -d $(filter-out $@,$(MAKECMDGOALS))
+	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_FILE) up -d $(filter-out $@,$(MAKECMDGOALS))
 endif
 
 down:
 ifeq ($(MAKECMDGOALS),down)
-	docker-compose -f $(DOCKER_COMPOSE) down
+	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_FILE) down
 else
-	docker-compose -f $(DOCKER_COMPOSE) stop $(filter-out $@,$(MAKECMDGOALS))
-	docker-compose -f $(DOCKER_COMPOSE) rm -f $(filter-out $@,$(MAKECMDGOALS))
+	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_FILE) stop $(filter-out $@,$(MAKECMDGOALS))
+	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_FILE) rm -f $(filter-out $@,$(MAKECMDGOALS))
 endif
 
-CONTROL_DOCKER = main
+CONTROL_DOCKER = $(PROJECT_NAME)
 
 container:
 	@make up $(CONTROL_DOCKER)
@@ -35,16 +39,16 @@ container-clean:
 
 start:
 ifeq ($(MAKECMDGOALS),start)
-	docker-compose -f $(DOCKER_COMPOSE) start
+	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_FILE) start
 else
-	docker-compose -f $(DOCKER_COMPOSE) start $(filter-out $@,$(MAKECMDGOALS))
+	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_FILE) start $(filter-out $@,$(MAKECMDGOALS))
 endif
 
 stop:
 ifeq ($(MAKECMDGOALS),stop)
-	docker-compose -f $(DOCKER_COMPOSE) stop
+	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_FILE) stop
 else
-	docker-compose -f $(DOCKER_COMPOSE) stop $(filter-out $@,$(MAKECMDGOALS))
+	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_FILE) stop $(filter-out $@,$(MAKECMDGOALS))
 endif
 
 restart:

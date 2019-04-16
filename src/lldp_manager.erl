@@ -115,8 +115,7 @@ handle_call(Request, From, State) ->
         Return ->
             Return
     catch
-        Error:Reason ->
-            StackTrace = erlang:get_stacktrace(),
+        Error:Reason:StackTrace ->
             ?ERROR("Failed:~n    Request ~p~n    From ~p~n    Error ~p, Reason ~p~n    StackTrace ~n~s",
                 [Request, From, Error, Reason, lldp_utils:pretty_print(StackTrace)]),
             {reply, Error, State}
@@ -128,8 +127,7 @@ handle_cast(Request, State) ->
         Return ->
             Return
     catch
-        Error:Reason ->
-            StackTrace = erlang:get_stacktrace(),
+        Error:Reason:StackTrace ->
             ?ERROR("Failed:~n    Request ~p~n    Error ~p, Reason ~p~n    StackTrace ~n~s",
                 [Request, Error, Reason, lldp_utils:pretty_print(StackTrace)]),
             {noreply, State}
@@ -141,8 +139,7 @@ handle_info(Info, State) ->
         Return ->
             Return
     catch
-        Error:Reason ->
-            StackTrace = erlang:get_stacktrace(),
+        Error:Reason:StackTrace ->
             ?ERROR("Failed:~n    Request ~p~n    Error ~p, Reason ~p~n    StackTrace ~n~s",
                 [Info, Error, Reason, lldp_utils:pretty_print(StackTrace)]),
             {noreply, State}
