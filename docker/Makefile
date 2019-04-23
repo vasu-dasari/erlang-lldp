@@ -61,7 +61,7 @@ else
 endif
 
 connect:
-	$(DOCKER) exec -it $(filter-out $@,$(MAKECMDGOALS))  bash -c "cd $(shell pwd)/scripts && bash"
+	$(DOCKER) exec -it $(filter-out $@,$(MAKECMDGOALS))  bash -c "cd $(shell pwd) && bash"
 
 logs:
 	$(DOCKER) logs $(filter-out $@,$(MAKECMDGOALS)) --follow

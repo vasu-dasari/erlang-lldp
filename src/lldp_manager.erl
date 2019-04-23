@@ -24,7 +24,7 @@
     terminate/2,
     code_change/3]).
 
--export([info/0, info/1, info/2, info/3]).
+-export([info/0, info/1, dashboard/1]).
 
 -export([start_handler/3, stop_handler/1, get_neighbors/2]).
 
@@ -45,14 +45,11 @@
 info() ->
     io:format("~s~n", [?call(info)]).
 
-info(Name) ->
-    io:format("~s~n", [?call({info, Name})]).
+info(ProcName) ->
+    io:format("~s~n", [?call({info,ProcName})]).
 
-info(Name, IfName) ->
-    io:format("~s~n", [?call({info, Name, IfName})]).
-
-info(Name, IfName, Option) ->
-    io:format("~s~n", [?call({info, Name, IfName, Option})]).
+dashboard(ProcName) ->
+    io:format("~s~n", [gen_server:call(ProcName, {info, dashboard})]).
 
 load_config() ->
     case application:get_env(?APPNAME, netlink) of
@@ -164,14 +161,14 @@ process_call(info, #state{handler_map = Map} = State) ->
 
     Return = maps:fold(fun
         (_, Pid, Acc) ->
-            lldp_handler:info(Pid, {info, brief}) ++ Acc
+            gen_lldp:info(Pid, {info, brief}) ++ Acc
     end, [], Map),
     {reply, lists:flatten(Header ++ Return), State};
 
 process_call(Request, #state{handler_map = Map} = State) when element(1, Request) == info ->
     HandlerName = element(2, Request),
     #{HandlerName := Pid} = Map,
-    {reply, lldp_handler:info(Pid, Request), State};
+    {reply, gen_lldp:info(Pid, Request), State};
 process_call(Request, State) ->
     ?INFO("call: Unhandled Request ~p", [Request]),
     {reply, ok, State}.

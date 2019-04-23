@@ -15,7 +15,7 @@
     {env,[]},
     {modules, []},
 
-    {maintainers, []},
+    {maintainers, ["Vasu Dasari"]},
     {licenses, ["Apache 2.0"]},
-    {links, []}
+    {links, [{"GitHub", "https://github.com/vasu-dasari/erlang-lldp"}]}
 ]}.

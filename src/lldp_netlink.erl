@@ -60,10 +60,10 @@ handle_message(
 
     NewState = case maps:get(IfName, IfMap, []) of
         #lldp_netlink_intf_t{} when OperState == up ->
-            lldp_handler:interface(update, IfName, up),
+            gen_lldp:interface(update, IfName, up),
             setup_socket(open, IfName, State);
         #lldp_netlink_intf_t{} when OperState == down ->
-            lldp_handler:interface(update, IfName, down),
+            gen_lldp:interface(update, IfName, down),
             setup_socket(close, IfName, State);
         _ ->
             State
@@ -78,7 +78,7 @@ handle_message({Port,{data,Data}} , #state{port_map = PortMap} = State) ->
         [] ->
             ok;
         #lldp_netlink_intf_t{if_name = IfName} ->
-            lldp_handler:rx_packet(IfName, Data)
+            gen_lldp:rx_packet(IfName, Data)
     end,
     {ok, State};
 
@@ -151,9 +151,9 @@ enable_lldp(IfName, IfPropList, State) ->
         sys_name = State#state.sys_name,
         if_index = get_ifindex(IfName),
         mgmt_ip = inet_utils:convert_ip(to_binary, proplists:get_value(addr, IfPropList, 0)),
-        if_state = lists:member(up, proplists:get_value(flags, IfPropList, []))
+        if_state = is_link_up(IfPropList)
     },
-    lldp_handler:interface(create, IfName, IfInfo).
+    gen_lldp:interface(create, IfName, IfInfo).
 
 setup_socket(open, IfName, #state{if_map = IfMap, port_map = PortMap} = State) ->
     {ok, SockFd} = procket:open(0,
@@ -220,4 +220,10 @@ is_lldp_enabled(IfName, Includes, Excludes) ->
             true;
         _ ->
             false
+    end.
+
+is_link_up(IfPropList) ->
+    case lists:member(up,proplists:get_value(flags,IfPropList,[])) of
+        true -> up;
+        _ -> down
     end.

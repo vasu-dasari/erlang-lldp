@@ -17,7 +17,7 @@
 -export([start_link/0]).
 
 %% Supervisor callbacks
--export([init/1, start_child/3, stop_child/1]).
+-export([init/1,start_child/3,stop_child/1,show_children/0]).
 
 -define(SERVER, ?MODULE).
 
@@ -66,7 +66,7 @@ init([]) ->
     MaxSecondsBetweenRestarts = 3600,
     SupFlags = {RestartStrategy, MaxRestarts, MaxSecondsBetweenRestarts},
     {ok, {SupFlags, [
-        ?Process(lldp_handler, worker)
+        ?Process(gen_lldp, worker)
     ]}}.
 
 start_child(ProcName, CallbackModName, CallbackState) ->
@@ -81,15 +81,19 @@ start_child(ProcName, CallbackModName, CallbackState) ->
 stop_child(Pid) when is_pid(Pid) ->
     do_delete_child(Pid).
 
+show_children() ->
+    lists:foreach(fun
+        ({undefined, Pid, worker, _}) ->
+            {_,Name} = erlang:process_info(Pid, registered_name),
+            io:format("~16s  => ~p~n", [Name, Pid])
+    end, supervisor:which_children(?MODULE)).
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
 do_add_child(ProcName, CallbackModName, CallbackState) ->
-    case supervisor:start_child(?SERVER, [ProcName, CallbackModName, CallbackState]) of
-        {ok, Pid} = Ret -> erlang:register(ProcName, Pid), Ret;
-        Ret -> Ret
-    end.
+    supervisor:start_child(?SERVER, [ProcName, CallbackModName, CallbackState]).
 
 do_delete_child(Pid) ->
     gen_server:stop(Pid),
