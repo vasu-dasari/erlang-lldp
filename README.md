@@ -6,6 +6,7 @@ This package implements LLDP protocol. It can be included as a library or as a s
     
 ### Standalone App
 Development and test environment is captured in [docker-compose.yml](https://github.com/vasu-dasari/erlang-lldp/blob/master/docker/docker-compose.yml)
+
 |Name|What is this  |
 |--|--|
 |lldp|Docker for compiling running `erlang-lldp` code  |
@@ -14,7 +15,8 @@ Development and test environment is captured in [docker-compose.yml](https://git
     $ make up    # Bring up development and test environment
     $ make.      # Compile the code
     $ make run   # Run the application
-![Setup Diagram](https://github.com/vasu-dasari/erlang-gobgp/blob/master/docs/Setup.jpeg)
+![Setup Diagram](https://github.com/vasu-dasari/erlang-lldp/blob/master/docs/Setup.jpeg)
+
 Now from Erlang shell one can do the following to display local interface information and discovered neighbors information
 
     (lldp@lldp)10> lldp_manager:dashboard(lldp_netlink).
@@ -36,8 +38,9 @@ Include the library as a rebar [lldp from hex](https://hex.pm/packages/lldp) dep
     lldp
  ]}.  
 ```
-![Software Model](https://github.com/vasu-dasari/erlang-gobgp/blob/master/docs/Software%20Model.jpeg)
+![Software Model](https://github.com/vasu-dasari/erlang-lldp/blob/master/docs/Software%20Model.jpeg)
 `erlang-lldp` can be adapted to be used on a custom platform as well. Platform specific information can be captured in an Erlang module by following `gen_lldp` behavior. It is expected to support the following callback functions by the custom module.
+
 |Callback|Description|
 |--|--|
 |init|Initialization function which can be used to relay platform specific state variable|
