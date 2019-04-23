@@ -39,6 +39,7 @@ Include the library as a rebar [lldp from hex](https://hex.pm/packages/lldp) dep
  ]}.  
 ```
 ![Software Model](https://github.com/vasu-dasari/erlang-lldp/blob/master/docs/Software%20Model.jpeg)
+
 `erlang-lldp` can be adapted to be used on a custom platform as well. Platform specific information can be captured in an Erlang module by following `gen_lldp` behavior. It is expected to support the following callback functions by the custom module.
 
 |Callback|Description|
