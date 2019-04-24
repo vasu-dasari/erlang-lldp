@@ -315,7 +315,7 @@ do_rx_packet(
     end,
 
     ets:match_delete(Table, {{'_',NbrKey},'_'}),
-    ets:insert(Table, {{qdate:add_seconds(Ttl), NbrKey}, IfName}),
+    ets:insert(Table, {{erlang:system_time(second) + Ttl, NbrKey}, IfName}),
 
     IfInfo#lldp_handler_intf_t{
         rx_pkts = RxPkts+1,
@@ -335,7 +335,7 @@ do_tx_packet(#state{if_map = IfMap} = State) ->
     State#state{if_map = NewIfMap}.
 
 do_hold_timer_expired(#state{ets_tab = Table, if_map = IfMap} = State) ->
-    CurrentTime = qdate:unixtime(),
+    CurrentTime = erlang:system_time(second),
     case ets:select(Table,
         ets:fun2ms(fun
             ({{ExpiryTime, L}, IfName}) when ExpiryTime < CurrentTime ->
@@ -405,14 +405,14 @@ do_info({info, _}, #state{if_map = IfMap}) ->
 
 do_info({info, _, all, neighbors}, #state{if_map = IfMap} = State) ->
     Header =
-        io_lib:format("~18c ~18c ~3c ~12c ~18c ~18c~n",[
-            $-, $-, $-, $-,$-, $-
+        io_lib:format("~10c ~18c ~18c ~3c ~12c ~18c ~6c~n",[
+            $-, $-, $-, $-, $-,$-, $-
         ]) ++
-        io_lib:format("~18s ~18s ~3s ~12s ~18s ~18s~n",[
-            "Chassis Id", "Port Id", "Ttl", "System Name", "Mgmt Info", "Expires At"
+        io_lib:format("~10s ~18s ~18s ~3s ~12s ~18s ~6s~n",[
+            "IfName", "Chassis Id", "Port Id", "Ttl", "System Name", "Mgmt Info", "Age"
         ]) ++
-        io_lib:format("~18c ~18c ~3c ~12c ~18c ~18c~n",[
-            $-, $-, $-, $-,$-, $-
+        io_lib:format("~10c ~18c ~18c ~3c ~12c ~18c ~6c~n",[
+            $-, $-, $-, $-, $-,$-, $-
         ]),
 
     Header ++ maps:fold(fun
@@ -424,14 +424,14 @@ do_info({info, HeaderReqd, IfName, neighbors}, #state{if_map = IfMap, ets_tab = 
     Header = case HeaderReqd == no_header of
         true -> [];
         _ ->
-            io_lib:format("~18c ~18c ~3c ~12c ~18c ~18c~n",[
-                $-, $-, $-, $-,$-, $-
+            io_lib:format("~10c ~18c ~18c ~3c ~12c ~18c ~6c~n",[
+                $-, $-, $-, $-, $-,$-, $-
             ]) ++
-                io_lib:format("~18s ~18s ~3s ~12s ~18s ~18s~n",[
-                    "Chassis Id", "Port Id", "Ttl", "System Name", "Mgmt Info", "Expires At"
+                io_lib:format("~10s ~18s ~18s ~3s ~12s ~18s ~6s~n",[
+                    "IfName", "Chassis Id", "Port Id", "Ttl", "System Name", "Mgmt Info", "Age"
                 ]) ++
-                io_lib:format("~18c ~18c ~3c ~12c ~18c ~18c~n",[
-                    $-, $-, $-, $-,$-, $-
+                io_lib:format("~10c ~18c ~18c ~3c ~12c ~18c ~6c~n",[
+                    $-, $-, $-, $-, $-,$-, $-
                 ])
     end,
 
@@ -440,13 +440,13 @@ do_info({info, HeaderReqd, IfName, neighbors}, #state{if_map = IfMap, ets_tab = 
             maps:fold(fun
                 (NbrKey, #lldp_entity_t{} = Entity, Acc) ->
                     [{{ExpiresAt,_},_}] = ets:match_object(Table, {{'_', NbrKey},'_'}),
-                    io_lib:format("~18s ~18s ~3w ~12s ~18s ~18s~n", [
-                        inet_utils:convert_mac(to_string, Entity#lldp_entity_t.chassis_id),
+                    io_lib:format("~10s ~18s ~18s ~3w ~12s ~18s ~6w~n", [
+                        IfName, inet_utils:convert_mac(to_string, Entity#lldp_entity_t.chassis_id),
                         (Entity#lldp_entity_t.port_id),
                         Entity#lldp_entity_t.ttl,
                         (Entity#lldp_entity_t.sys_name),
                         Entity#lldp_entity_t.mgmt_ip,
-                        qdate:to_string("n/j/Y g:ia", ExpiresAt)
+                        ExpiresAt - erlang:system_time(second)
                     ]) ++ Acc
             end, [], NbrsMap);
         _ ->

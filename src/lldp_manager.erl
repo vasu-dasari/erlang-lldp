@@ -183,8 +183,6 @@ process_cast(Request, State) ->
     {noreply, State}.
 
 process_info_msg({init}, State) ->
-    qdate:set_timezone(os:cmd("date +%Z")),
-    qdate:set_timezone(os:cmd("EST")),
     load_config(),
     {noreply, State};
 

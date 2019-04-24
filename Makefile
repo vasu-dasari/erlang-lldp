@@ -14,7 +14,7 @@ endif
 REBAR := $(EXEC_ARGS) $(REBAR_FILE)
 
 compile:
-	@$(EXEC) "$(REBAR) compile"
+	@$(EXEC) "$(REBAR) as test compile"
 
 local:
 	@mkdir -p _build
@@ -44,7 +44,7 @@ dind:
 deep-clean:
 	@rm -rf _build rebar.lock
 
-SHELL_ARGS := ERL_FLAGS=\" -args_file config/vm.args -config config/sys.config\" rebar3 shell
+SHELL_ARGS := ERL_FLAGS=\" -args_file config/vm.args -config config/sys.config\" rebar3 as test shell
 run:
 	@$(EXEC) "$(EXEC_ARGS) $(SHELL_ARGS)"
 

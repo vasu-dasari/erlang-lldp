@@ -1,16 +1,12 @@
 {application, lldp, [
     {description, "Erlang based LLDP Libray"},
-    {vsn, "0.1.0"},
+    {vsn, "git"},
     {registered, []},
     {mod, { lldp_app, []}},
     {applications, [
         kernel,
         stdlib,
-        lager,
-        gen_netlink,
-        pkt,
-        qdate,
-        procket
+        lager
     ]},
     {env,[]},
     {modules, []},
