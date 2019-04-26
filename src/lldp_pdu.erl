@@ -25,6 +25,7 @@ encode(
             sys_name = SysName,
             sys_descr = SysDescr,
             mgmt_ip = MgmtIp,
+            other_tlvs = OtherTlvs,
             if_index = IfIndex
         }) ->
     pkt:encode([
@@ -58,9 +59,8 @@ encode(
                 #system_capability{
                     enabled = [router,bridge],
                     system = [router,bridge]
-                },
-                end_of_lldpdu
-            ]
+                }
+            ] ++ OtherTlvs ++ [end_of_lldpdu]
         }
     ]).
 
@@ -98,6 +98,8 @@ decode(LldpPduBin) ->
                 if_index = IfIndex,
                 mgmt_ip = MgmtIp
             };
+        (#organizationally_specific{} = Others, #lldp_entity_t{other_tlvs = OtherTlvs} = Acc) ->
+            Acc#lldp_entity_t{other_tlvs = [Others | OtherTlvs]};
         (_, Acc) ->
             Acc
     end, #lldp_entity_t{

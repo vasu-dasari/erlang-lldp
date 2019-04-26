@@ -19,7 +19,7 @@
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--export([info/2, rx_packet/2, interface/3]).
+-export([info/2, rx_packet/2, interface/3, add_tlv/2]).
 
 -include_lib("stdlib/include/ms_transform.hrl").
 
@@ -71,6 +71,7 @@
     callback_state,
     ets_tab,
     timer_ref,
+    other_tlvs = [],
     if_map = #{}
 }).
 
@@ -101,6 +102,9 @@ interface(Op, IfName, IfInfo) ->
 rx_packet(IfName, Data) ->
     gen_server:cast(self(), {rx_packet,IfName,Data}).
 
+add_tlv(Pid, TlvList) ->
+    gen_server:cast(Pid, {add_tlv,TlvList}).
+
 start_link(ProcName, ModuleName, Cfg) ->
     gen_server:start_link({local, ProcName}, ?MODULE, [ProcName, ModuleName, Cfg], []).
 
@@ -112,6 +116,7 @@ init([ProcName, CallbackModule, CallbackState]) ->
     ?INFO("~p: Starting ~s with handler module at ~p",
         [ProcName, ?MODULE_STRING, CallbackModule]),
     self() ! {init},
+    process_flag(trap_exit, true),
     {ok, #state{
         name = ProcName,
         module = CallbackModule,
@@ -192,7 +197,19 @@ process_cast({rx_packet, IfName, Data}, #state{if_map = IfMap} = State) ->
     #{IfName := IfInfo} = IfMap,
     {noreply, State#state{if_map = IfMap#{IfName => do_rx_packet(IfInfo, Data, State)}}};
 
+process_cast({add_tlv, TlvList}, #state{if_map = IfMap} = State) ->
+    NewIfMap = maps:fold(fun
+        (IfName, #lldp_handler_intf_t{if_info = #lldp_entity_t{other_tlvs = OtherTlvs} = Entity} = IfInfo, Acc) ->
+            NewEntity = Entity#lldp_entity_t{other_tlvs = OtherTlvs ++ TlvList},
+            Acc#{IfName => IfInfo#lldp_handler_intf_t{
+                if_info = NewEntity,
+                tx_data = lldp_pdu:encode(NewEntity)
+            }}
+    end, #{}, IfMap),
+    {noreply, State#state{if_map = NewIfMap, other_tlvs = TlvList}};
+
 process_cast(Request, State) ->
+    ?INFO("cast: ~p", [Request]),
     {noreply, State#state{callback_state = dispatch(Request, State)}}.
 
 process_info_msg({init}, #state{name = Name} = State) ->
@@ -227,19 +244,20 @@ process_info_msg(Request, State) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-do_interface(create, IfName, Entity, #state{if_map = IfMap} = State) ->
+do_interface(create, IfName, Entity, #state{if_map = IfMap, other_tlvs = OtherTlvs} = State) ->
     case Entity#lldp_entity_t.if_state == up of
         true ->
             erlang:send_after(?ReinitTimer * 1000, self(), {reinit_timer_expired, IfName});
         _ ->
             ok
     end,
+    NewEntity = Entity#lldp_entity_t{other_tlvs = OtherTlvs},
     State#state{
         if_map = IfMap#{
             IfName => #lldp_handler_intf_t{
                 if_name = IfName,
-                if_info = Entity,
-                tx_data = lldp_pdu:encode(Entity)
+                if_info = NewEntity,
+                tx_data = lldp_pdu:encode(NewEntity)
             }
         }
     };
@@ -348,11 +366,9 @@ do_hold_timer_expired(#state{ets_tab = Table, if_map = IfMap} = State) ->
                     ets:delete(Table, Key),
                     case maps:get(NbrKey, NbrMap, []) of
                         [] ->
-                            ?INFO("Not Deleting from NbrMap ~p", [NbrMap]),
                             Acc;
                         NbrInfo ->
                             dispatch(notify, {delete, IfName, NbrInfo}, State),
-                            ?INFO("Deleting from NbrMap ~p", [#{IfName => IfInfo#lldp_handler_intf_t{nbr_list = maps:remove(NbrKey, NbrMap)}}]),
                             Acc#{IfName => IfInfo#lldp_handler_intf_t{nbr_list = maps:remove(NbrKey, NbrMap)}}
                     end
             end, IfMap, Entities);

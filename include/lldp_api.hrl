@@ -19,6 +19,7 @@
     sys_name = "",
     sys_descr = "",
     mgmt_ip = "",
+    other_tlvs = [],
     if_index,
     if_state
 }).
