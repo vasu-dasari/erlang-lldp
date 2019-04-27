@@ -266,9 +266,9 @@ do_interface(update, IfName, down, #state{ets_tab = Table, if_map = IfMap} = Sta
         if_info = Entity, nbr_list = NbrList
     } = IfInfo} = IfMap,
     lists:foreach(fun
-        ({NbrKey, _}) ->
+        ({NbrKey, NbrInfo}) ->
             ets:match_delete(Table, {{'_',NbrKey},'_'}),
-            dispatch(notify, {delete, IfName, NbrKey}, State)
+            dispatch(notify, {delete, IfName, NbrInfo}, State)
     end, maps:to_list(NbrList)),
 
     State#state{
