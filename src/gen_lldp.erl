@@ -183,12 +183,9 @@ code_change(_OldVsn, State, _Extra) ->
 process_call(Request, State) when element(1, Request) == info ->
     {reply, lists:flatten(do_info(Request, State)), State};
 process_call({neighbors, Op, IfInfo} = A, State) ->
-    R = do_neighbors(Op,IfInfo,State),
-    ?INFO("Get neighbors ~p~n~p", [A, R]),
-    {reply,R, State};
+    {reply,do_neighbors(Op,IfInfo,State), State};
 process_call(Request, State) ->
-    ?INFO("call: Unhandled Request ~p", [Request]),
-    {reply, ok, State}.
+    {reply, ok, State#state{callback_state = dispatch(Request, State)}}.
 
 process_cast({interface,Op, IfName, IfInfo}, State) ->
     {noreply, do_interface(Op, IfName, IfInfo, State)};
