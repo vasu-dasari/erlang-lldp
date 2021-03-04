@@ -182,7 +182,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 process_call(Request, State) when element(1, Request) == info ->
     {reply, lists:flatten(do_info(Request, State)), State};
-process_call({neighbors, Op, IfInfo} = A, State) ->
+process_call({neighbors, Op, IfInfo}, State) ->
     {reply,do_neighbors(Op,IfInfo,State), State};
 process_call(Request, State) ->
     {reply, ok, State#state{callback_state = dispatch(Request, State)}}.
@@ -313,7 +313,8 @@ do_rx_packet(
     #lldp_handler_intf_t{
         if_name = IfName,
         nbr_list = NbrList,
-        rx_pkts = RxPkts
+        rx_pkts = RxPkts,
+        tx_data = TxData
     } = IfInfo, Data, #state{ets_tab = Table} = State) ->
     #lldp_entity_t{
         chassis_id = ChassisId, port_id = PortId, ttl = Ttl
@@ -324,6 +325,8 @@ do_rx_packet(
         #lldp_entity_t{} = E when E /= DecodeData ->
             dispatch(notify, {update, IfName, DecodeData}, State);
         [] ->
+            %% Send a LLDP packet here, so that link discovery happens both sides soon enough
+            dispatch({tx_packet, IfName, TxData}, State),
             dispatch(notify, {add, IfName, DecodeData}, State);
         _ ->
             ok
