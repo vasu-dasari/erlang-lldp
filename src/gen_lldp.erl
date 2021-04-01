@@ -19,7 +19,7 @@
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--export([info/2, rx_packet/2, interface/3, add_tlv/2]).
+-export([info/2, rx_packet/2, interface/3, add_tlv/2, delete_tlv/2, refresh_neighbor_notifications/1]).
 
 -include_lib("stdlib/include/ms_transform.hrl").
 
@@ -104,6 +104,12 @@ rx_packet(IfName, Data) ->
 
 add_tlv(Pid, TlvList) ->
     gen_server:cast(Pid, {add_tlv,TlvList}).
+
+delete_tlv(Pid, TlvList) ->
+    gen_server:cast(Pid, {delete_tlv,TlvList}).
+
+refresh_neighbor_notifications(Pid) ->
+    gen_server:cast(Pid, refresh_neighbor_notifications).
 
 start_link(ProcName, ModuleName, Cfg) ->
     gen_server:start_link({local, ProcName}, ?MODULE, [ProcName, ModuleName, Cfg], []).
@@ -203,7 +209,30 @@ process_cast({add_tlv, TlvList}, #state{if_map = IfMap} = State) ->
                 tx_data = lldp_pdu:encode(NewEntity)
             }}
     end, #{}, IfMap),
-    {noreply, State#state{if_map = NewIfMap, other_tlvs = TlvList}};
+    {noreply, do_tx_packet(State#state{if_map = NewIfMap, other_tlvs = TlvList})};
+
+process_cast({delete_tlv, TlvList}, #state{if_map = IfMap} = State) ->
+    NewIfMap = maps:fold(fun
+        (IfName, #lldp_handler_intf_t{if_info = #lldp_entity_t{other_tlvs = OtherTlvs} = Entity} = IfInfo, Acc) ->
+            NewEntity = Entity#lldp_entity_t{other_tlvs = OtherTlvs -- TlvList},
+            Acc#{IfName => IfInfo#lldp_handler_intf_t{
+                if_info = NewEntity,
+                tx_data = lldp_pdu:encode(NewEntity)
+            }}
+    end, #{}, IfMap),
+    {noreply, do_tx_packet(State#state{if_map = NewIfMap, other_tlvs = TlvList})};
+
+process_cast(refresh_neighbor_notifications, #state{if_map = IfMap} = State) ->
+    lists:foreach(fun
+        ({IfName, #lldp_handler_intf_t{nbr_list = NbrMap}}) when map_size(NbrMap) /= 0 ->
+            lists:foreach(fun
+                ({_, Entity}) ->
+                    dispatch(notify, {add, IfName, Entity}, State)
+            end, maps:to_list(NbrMap));
+        ({_IfName, _}) ->
+            ok
+    end, maps:to_list(IfMap)),
+    {noreply, State};
 
 process_cast(Request, State) ->
     ?INFO("cast: ~p", [Request]),
@@ -323,6 +352,8 @@ do_rx_packet(
 
     case maps:get(NbrKey, NbrList, []) of
         #lldp_entity_t{} = E when E /= DecodeData ->
+            %% Send a LLDP packet here, so that link discovery happens both sides soon enough
+            dispatch({tx_packet, IfName, TxData}, State),
             dispatch(notify, {update, IfName, DecodeData}, State);
         [] ->
             %% Send a LLDP packet here, so that link discovery happens both sides soon enough
@@ -346,7 +377,7 @@ do_tx_packet(#state{if_map = IfMap} = State) ->
     NewIfMap = maps:map(fun
         (IfName, #lldp_handler_intf_t{tx_data = TxData, tx_pkts = TxPkts, if_info = #lldp_entity_t{if_state = up}} = Value) ->
             dispatch({tx_packet, IfName, TxData}, State),
-            Value#lldp_handler_intf_t{tx_data = TxData, tx_pkts = TxPkts+1};
+            Value#lldp_handler_intf_t{tx_pkts = TxPkts+1};
         (_, Value) ->
             Value
     end, IfMap),
